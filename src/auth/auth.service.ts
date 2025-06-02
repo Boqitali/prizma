@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -10,6 +11,7 @@ import { CreateUserDto, SignInUserDto } from "../users/dto";
 import * as bcrypt from "bcrypt";
 import { User } from "../../generated/prisma";
 import { Request, Response } from "express";
+import { JwtPayload, ResponseFields, Tokens } from "../common/types";
 
 @Injectable()
 export class AuthService {
@@ -47,7 +49,8 @@ export class AuthService {
     });
     return {
       message: "New user signed up",
-      accressToken: tokens.accessToken,
+      id: user.id,
+      accessToken: tokens.accessToken,
     };
   }
 
@@ -80,76 +83,59 @@ export class AuthService {
     });
     return {
       message: "User signed in",
-      accressToken: tokens.accessToken,
+      id: user.id,
+      accessToken: tokens.accessToken,
     };
   }
 
-  async signOut(res: Response, req: Request) {
-    const refreshToken = req.cookies["refreshToken"];
-
-    if (!refreshToken) {
-      throw new BadRequestException("Cookie da refresh token topilmadi");
-    }
-
-    const payload = await this.jwtService.decode(refreshToken);
-
-    if (!payload) {
-      throw new UnauthorizedException("Refresh token xato");
-    }
-
-    const user = await this.prismaService.user.findUnique({
-      where: { id: payload.id },
+  async signOut(res: Response, userId: number) {
+    const user = this.prismaService.user.updateMany({
+      where: {
+        id: userId,
+        hashed_refresh_token: {
+          not: null,
+        },
+      },
+      data: {
+        hashed_refresh_token: null,
+      },
     });
 
-    if (!user) {
-      throw new BadRequestException(
-        "Bunday refresh tokenli foydalanuvchi topilmadi"
-      );
-    }
-
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-    });
-
-    return {
-      message: "User signed out",
-    };
+    if (!user) throw new ForbiddenException("Access Denied");
+    res.clearCookie("refreshToken");
+    return true;
   }
 
-  async refreshToken(req: Request, res: Response) {
-    const refreshToken = req.cookies["refreshToken"];
-
-    if (!refreshToken) {
-      throw new BadRequestException("Cookie da refresh token topilmadi");
-    }
-
-    const payload = await this.jwtService.decode(refreshToken);
-
-    if (!payload) {
-      throw new UnauthorizedException("Refresh token xato");
-    }
-
+  async refreshToken(
+    userId: number,
+    refreshToken: string,
+    res: Response
+  ): Promise<ResponseFields> {
     const user = await this.prismaService.user.findUnique({
-      where: { id: payload.id },
+      where: { id: userId },
     });
 
-    if (!user) {
-      throw new BadRequestException(
-        "Bunday refresh tokenli foydalanuvchi topilmadi"
-      );
+    if (!user || !user.hashed_refresh_token) {
+      throw new BadRequestException("access denied1");
     }
+    const rtMatches = await bcrypt.compare(
+      refreshToken,
+      user.hashed_refresh_token
+    );
+    if (!rtMatches) throw new ForbiddenException("access denied2");
 
-    const tokens = await this.generateToken(user);
+    const tokens: Tokens = await this.generateToken(user);
 
     const hashed_refresh_token = await bcrypt.hash(tokens.refreshToken, 7);
     await this.updateRefreshToken(user.id, hashed_refresh_token);
 
     res.cookie("refreshToken", tokens.refreshToken, {
-      maxAge: Number(process.env.COOKIE_TIME),
+      maxAge: +process.env.COOKIE_TIME!,
       httpOnly: true,
     });
     return {
       message: "new refresh token",
+      id: user.id,
       accessToken: tokens.accessToken,
     };
   }
@@ -165,10 +151,10 @@ export class AuthService {
     });
   }
 
-  async generateToken(user: User) {
-    const payload = {
+  async generateToken(user: User): Promise<Tokens> {
+    const payload: JwtPayload = {
       id: user.id,
-      adminname: user.is_active,
+      is_active: user.is_active,
       email: user.email,
     };
 

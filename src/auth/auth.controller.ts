@@ -1,7 +1,10 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { CreateUserDto, SignInUserDto } from "../users/dto";
 import { Request, Response } from "express";
+import { ResponseFields } from "../common/types";
+import { GetCurrentUser, GetCurrentUserId } from "../common/decorators";
+import { RefreshTokenGuard } from "../common/guards";
 
 @Controller("auth")
 export class AuthController {
@@ -11,7 +14,7 @@ export class AuthController {
   async signup(
     @Body() createUserDto: CreateUserDto,
     @Res({ passthrough: true }) res: Response
-  ) {
+  ): Promise<ResponseFields> {
     return this.authService.signUp(createUserDto, res);
   }
 
@@ -20,23 +23,27 @@ export class AuthController {
   async signin(
     @Body() signInUserDto: SignInUserDto,
     @Res({ passthrough: true }) res: Response
-  ) {
+  ): Promise<ResponseFields> {
     return this.authService.signIn(signInUserDto, res);
   }
 
+  @UseGuards(RefreshTokenGuard)
   @Get("signout")
   async signout(
-    @Res({ passthrough: true }) res: Response,
-    @Req() req: Request
+    @GetCurrentUserId() userId: number,
+    @Res({ passthrough: true }) res: Response
   ) {
-    return this.authService.signOut(res, req);
+    return this.authService.signOut(res, +userId);
   }
 
+  @UseGuards(RefreshTokenGuard)
   @Post("refresh-token")
+  @HttpCode(HttpStatus.OK)
   async refreshToken(
-    @Res({ passthrough: true }) res: Response,
-    @Req() req: Request
+    @GetCurrentUserId() userId: number,
+    @GetCurrentUser("refreshToken") refreshToken: string,
+    @Res({passthrough: true}) res: Response
   ) {
-    return this.authService.refreshToken(req, res);
+    return this.authService.refreshToken(+userId, refreshToken, res)
   }
 }
