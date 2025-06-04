@@ -23,8 +23,45 @@ model User {
   createAt DateTime @default(now())
   updateAt DateTime @updatedAt
   is_active Boolean @default(true)
-
+  orders Order[]
   @@map("users")
 }
 
+model Order {
+  id Int @id @default(autoincrement())
+  total Int
+  userId Int
+  user User @relation(fields: [userId], references: [id])
+  // Kop order bitta userga tegishli
+  @@map("orders")
+}
 
+model Student {
+  id Int @id @default(autoincrement())
+  name String 
+  student_courses StudentCourses[]
+
+  @@map("students")
+
+}
+
+model Course {
+  id Int @id @default(autoincrement())
+  title String
+  students_courses StudentCourses[]
+
+  @@map("courses")
+}
+
+model StudentCourses {
+  id Int @id @default(autoincrement())
+  studentId Int
+  courseId Int
+  student Student @relation(fields: [studentId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
+
+  @@unique([studentId, courseId])
+
+  // Bir student bitta kursga faqat bir marta yozilishi mumkin
+  @@map("student_courses")
+}
